@@ -26,32 +26,41 @@ def load_config():
 
     global telemetry_interval
     global max_rows
+    global telemetry_rows
 
     try:
 
-        telemetry_interval = int(
+        new_interval = int(
             Path(
                 f"{CONFIG_PATH}/TELEMETRY_INTERVAL"
             ).read_text().strip()
         )
 
-        max_rows = int(
+        new_max_rows = int(
             Path(
                 f"{CONFIG_PATH}/MAX_ROWS"
             ).read_text().strip()
         )
 
+        telemetry_interval = new_interval
+        max_rows = new_max_rows
+
+        with lock:
+
+            if len(telemetry_rows) > max_rows:
+
+                telemetry_rows = telemetry_rows[-max_rows:]
+
         print(
             f"CONFIG RELOADED "
             f"interval={telemetry_interval} "
-            f"max_rows={max_rows}"
+            f"max_rows={max_rows} "
+            f"current_rows={len(telemetry_rows)}"
         )
 
     except Exception as e:
 
         print(f"config reload error: {e}")
-
-
 def config_reloader():
 
     while True:
