@@ -5,48 +5,22 @@ import threading
 import time
 import random
 from pathlib import Path
-import os
 
-CONFIG_PATH="/config"
+# ConfigMap mount path
+CONFIG_PATH = "/config"
 
+# default values
 telemetry_interval = 5
 max_rows = 1000
 
-app = FastAPI(title="APACHE ARROW Telemetry Collector")
-
-max_rows = 1000
+app = FastAPI(
+    title="APACHE ARROW Telemetry Collector"
+)
 
 telemetry_rows = []
 
 lock = threading.Lock()
 
-def generate_telemetry():
-
-    global telemetry_rows
-
-    nodes = [
-        "worker-1",
-        "worker-2",
-        "worker-3"
-    ]
-
-    while True:
-
-        row = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "node": random.choice(nodes),
-            "cpu": random.randint(20,95),
-            "memory": random.randint(30,90)
-        }
-
-        with lock:
-
-            telemetry_rows.append(row)
-
-            if len(telemetry_rows) > max_rows:
-                telemetry_rows.pop(0)
-
-        time.sleep(telemetry_interval)
 
 def load_config():
 
@@ -63,13 +37,20 @@ def load_config():
 
         max_rows = int(
             Path(
-                f"{CONFIG_PATH}/max_rows"
+                f"{CONFIG_PATH}/MAX_ROWS"
             ).read_text().strip()
+        )
+
+        print(
+            f"CONFIG RELOADED "
+            f"interval={telemetry_interval} "
+            f"max_rows={max_rows}"
         )
 
     except Exception as e:
 
-        print(f"config reload error {e}")
+        print(f"config reload error: {e}")
+
 
 def config_reloader():
 
@@ -78,12 +59,43 @@ def config_reloader():
         load_config()
 
         time.sleep(10)
-        
+
+
+def generate_telemetry():
+
+    global telemetry_rows
+
+    nodes = [
+        "worker-1",
+        "worker-2",
+        "worker-3"
+    ]
+
+    while True:
+
+        row = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "node": random.choice(nodes),
+            "cpu": random.randint(20, 95),
+            "memory": random.randint(30, 90)
+        }
+
+        with lock:
+
+            telemetry_rows.append(row)
+
+            if len(telemetry_rows) > max_rows:
+                telemetry_rows.pop(0)
+
+        time.sleep(telemetry_interval)
+
+
 def build_arrow_table():
 
     with lock:
 
         if not telemetry_rows:
+
             return pa.table({
                 "timestamp": [],
                 "node": [],
@@ -91,20 +103,26 @@ def build_arrow_table():
                 "memory": []
             })
 
-        return pa.Table.from_pylist(telemetry_rows)
+        return pa.Table.from_pylist(
+            telemetry_rows
+        )
+
 
 @app.on_event("startup")
 def startup():
 
-    thread = threading.Thread(
+    load_config()
+
+    threading.Thread(
         target=generate_telemetry,
         daemon=True
-    )
+    ).start()
 
-     threading.Thread(
+    threading.Thread(
         target=config_reloader,
         daemon=True
     ).start()
+
 
 @app.get("/health")
 def health():
@@ -112,6 +130,8 @@ def health():
     return {
         "status": "UP"
     }
+
+
 @app.get("/config")
 def config():
 
@@ -119,6 +139,7 @@ def config():
         "telemetry_interval": telemetry_interval,
         "max_rows": max_rows
     }
+
 
 @app.get("/stats")
 def stats():
@@ -128,8 +149,10 @@ def stats():
     return {
         "rows": table.num_rows,
         "columns": table.num_columns,
-        "schema": str(table.schema)
+        "schema": str(table.schema),
+        "memory_bytes": table.nbytes
     }
+
 
 @app.get("/data")
 def data():
