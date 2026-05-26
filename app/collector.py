@@ -5,7 +5,7 @@ import threading
 import time
 import random
 
-app = FastAPI(title="Arrow Telemetry Collector")
+app = FastAPI(title="APACHE ARROW Telemetry Collector")
 
 MAX_ROWS = 1000
 
