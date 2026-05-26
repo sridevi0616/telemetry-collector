@@ -4,10 +4,17 @@ from datetime import datetime
 import threading
 import time
 import random
+from pathlib import Path
+import os
+
+CONFIG_PATH="/config"
+
+telemetry_interval = 5
+max_rows = 1000
 
 app = FastAPI(title="APACHE ARROW Telemetry Collector")
 
-MAX_ROWS = 1000
+max_rows = 1000
 
 telemetry_rows = []
 
@@ -36,11 +43,42 @@ def generate_telemetry():
 
             telemetry_rows.append(row)
 
-            if len(telemetry_rows) > MAX_ROWS:
+            if len(telemetry_rows) > max_rows:
                 telemetry_rows.pop(0)
 
-        time.sleep(5)
+        time.sleep(telemetry_interval)
 
+def load_config():
+
+    global telemetry_interval
+    global max_rows
+
+    try:
+
+        telemetry_interval = int(
+            Path(
+                f"{CONFIG_PATH}/TELEMETRY_INTERVAL"
+            ).read_text().strip()
+        )
+
+        max_rows = int(
+            Path(
+                f"{CONFIG_PATH}/max_rows"
+            ).read_text().strip()
+        )
+
+    except Exception as e:
+
+        print(f"config reload error {e}")
+
+def config_reloader():
+
+    while True:
+
+        load_config()
+
+        time.sleep(10)
+        
 def build_arrow_table():
 
     with lock:
@@ -63,13 +101,23 @@ def startup():
         daemon=True
     )
 
-    thread.start()
+     threading.Thread(
+        target=config_reloader,
+        daemon=True
+    ).start()
 
 @app.get("/health")
 def health():
 
     return {
         "status": "UP"
+    }
+@app.get("/config")
+def config():
+
+    return {
+        "telemetry_interval": telemetry_interval,
+        "max_rows": max_rows
     }
 
 @app.get("/stats")
