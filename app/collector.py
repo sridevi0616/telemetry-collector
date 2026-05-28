@@ -1,21 +1,25 @@
 from fastapi import FastAPI
+import pyarrow as pa
 from datetime import datetime
 import threading
 import time
 import random
 from pathlib import Path
 
+# ConfigMap mount path
 CONFIG_PATH = "/config"
 
+# default values
 telemetry_interval = 5
 max_rows = 1000
 
 app = FastAPI(
-    title="Telemetry Collector WITHOUT Arrow"
+    title="APACHE ARROW Telemetry Collector"
 )
 
 telemetry_rows = []
 
+lock = threading.Lock()
 lock = threading.Lock()
 
 
@@ -27,17 +31,20 @@ def load_config():
 
     try:
 
-        telemetry_interval = int(
+        new_interval = int(
             Path(
                 f"{CONFIG_PATH}/TELEMETRY_INTERVAL"
             ).read_text().strip()
         )
 
-        max_rows = int(
+        new_max_rows = int(
             Path(
                 f"{CONFIG_PATH}/MAX_ROWS"
             ).read_text().strip()
         )
+
+        telemetry_interval = new_interval
+        max_rows = new_max_rows
 
         with lock:
 
@@ -55,8 +62,6 @@ def load_config():
     except Exception as e:
 
         print(f"config reload error: {e}")
-
-
 def config_reloader():
 
     while True:
@@ -81,8 +86,8 @@ def generate_telemetry():
         row = {
             "timestamp": datetime.utcnow().isoformat(),
             "node": random.choice(nodes),
-            "cpu": random.randint(20,95),
-            "memory": random.randint(30,90)
+            "cpu": random.randint(20, 95),
+            "memory": random.randint(30, 90)
         }
 
         with lock:
@@ -90,10 +95,27 @@ def generate_telemetry():
             telemetry_rows.append(row)
 
             if len(telemetry_rows) > max_rows:
-
                 telemetry_rows.pop(0)
 
         time.sleep(telemetry_interval)
+
+
+def build_arrow_table():
+
+    with lock:
+
+        if not telemetry_rows:
+
+            return pa.table({
+                "timestamp": [],
+                "node": [],
+                "cpu": [],
+                "memory": []
+            })
+
+        return pa.Table.from_pylist(
+            telemetry_rows
+        )
 
 
 @app.on_event("startup")
@@ -116,7 +138,7 @@ def startup():
 def health():
 
     return {
-        "status":"UP"
+        "status": "UP"
     }
 
 
@@ -132,17 +154,19 @@ def config():
 @app.get("/stats")
 def stats():
 
-    with lock:
+    table = build_arrow_table()
 
-        return {
-            "rows": len(telemetry_rows),
-            "memory_type": "python_list"
-        }
+    return {
+        "rows": table.num_rows,
+        "columns": table.num_columns,
+        "schema": str(table.schema),
+        "memory_bytes": table.nbytes
+    }
 
 
 @app.get("/data")
 def data():
 
-    with lock:
+    table = build_arrow_table()
 
-        return telemetry_rows
+    return table.to_pylist()
